@@ -1,6 +1,6 @@
 {
   "name": "puppeteer-themis",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -11,6 +11,6 @@
     "puppeteer": "21.6.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.15.0 <21.0.0"
   }
 }
