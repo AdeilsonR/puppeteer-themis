@@ -1,5 +1,6 @@
 import express from "express";
-import puppeteer from "puppeteer";
+import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 app.use(express.json());
@@ -12,24 +13,26 @@ app.post("/buscar-processo", async (req, res) => {
   }
 
   try {
+    const executablePath = await chromium.executablePath;
+
     const browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: chromium.args,
+      executablePath,
+      headless: chromium.headless,
+      defaultViewport: chromium.defaultViewport,
     });
 
     const page = await browser.newPage();
 
-    // ===== LOGIN =====
     await page.goto("https://seudominio.com.br/themis/login", {
       waitUntil: "networkidle2",
     });
 
-    await page.type("input[name='login']", "SEU_USUARIO_AQUI");
-    await page.type("input[name='senha']", "SUA_SENHA_AQUI");
+    await page.type("input[name='login']", "SEU_USUARIO");
+    await page.type("input[name='senha']", "SUA_SENHA");
     await page.click("button[type='submit']");
     await page.waitForNavigation({ waitUntil: "networkidle2" });
 
-    // ===== BUSCA PROCESSO =====
     await page.goto("https://seudominio.com.br/themis/processos", {
       waitUntil: "networkidle2",
     });
@@ -51,9 +54,6 @@ app.post("/buscar-processo", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("Serviço Puppeteer Themis ativo!");
-});
-
+app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo (Lambda-ready)!"));
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Servidor ativo na porta ${PORT}`));
