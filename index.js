@@ -58,4 +58,6 @@ app.post("/buscar-processo", async (req, res) => {
 
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Servidor rodando na porta ${PORT}`));
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`✅ Servidor rodando na porta ${PORT}`)
+);
