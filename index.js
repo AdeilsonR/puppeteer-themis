@@ -52,7 +52,7 @@ app.post("/buscar-processo", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("🚀 Serviço Puppeteer Themis ativo!");
+  res.send("Serviço Puppeteer Themis ativo!");
 });
 
 const PORT = process.env.PORT || 10000;
