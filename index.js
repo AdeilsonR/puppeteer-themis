@@ -1,6 +1,5 @@
 import express from "express";
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 const app = express();
 app.use(express.json());
@@ -13,13 +12,16 @@ app.post("/buscar-processo", async (req, res) => {
   }
 
   try {
-    const executablePath = await chromium.executablePath;
-
     const browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath,
-      headless: chromium.headless,
-      defaultViewport: chromium.defaultViewport,
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process",
+      ],
     });
 
     const page = await browser.newPage();
@@ -54,6 +56,6 @@ app.post("/buscar-processo", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo (Lambda-ready)!"));
+app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Servidor ativo na porta ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Servidor rodando na porta ${PORT}`));
