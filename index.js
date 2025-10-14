@@ -11,10 +11,10 @@ app.post("/buscar-processo", async (req, res) => {
     return res.status(400).json({ erro: "Número do processo é obrigatório." });
   }
 
-  console.log("Iniciando busca do processo:", numeroProcesso);
+  console.log("🔎 Iniciando busca do processo:", numeroProcesso);
 
   try {
-    console.log("Iniciando navegador...");
+    console.log("🚀 Iniciando navegador...");
     const browser = await puppeteer.launch({
       executablePath:
         process.env.PUPPETEER_EXECUTABLE_PATH ||
@@ -30,23 +30,24 @@ app.post("/buscar-processo", async (req, res) => {
     });
 
     const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
 
     await page.goto("https://themia.themisweb.penso.com.br/themia", {
       waitUntil: "networkidle2",
     });
 
-    console.log("Página carregada, iniciando login...");
+    console.log("🌐 Página carregada, iniciando login...");
     await page.waitForSelector("#login", { timeout: 15000 });
     await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
     await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
     await page.click("#btnLogin");
 
-    console.log("Aguardando validação do login...");
+    console.log("⏳ Aguardando validação do login...");
     await page.waitForSelector("#btnBuscaProcessos", { timeout: 20000 });
     console.log("✅ Login realizado com sucesso!");
 
     // === ABRIR BUSCA DE PROCESSOS ===
-    console.log("Abrindo tela de busca de processos...");
+    console.log("📁 Abrindo tela de busca de processos...");
     await page.click("#btnBuscaProcessos");
     await page.waitForSelector("#adicionarBusca", { timeout: 20000 });
 
@@ -55,23 +56,35 @@ app.post("/buscar-processo", async (req, res) => {
     await page.click("#adicionarBusca");
 
     // === AGUARDAR CAMPO DE PROCESSO ===
-    await page.waitForSelector("#numeroCNJ", { timeout: 20000 });
-    console.log("Campo de processo localizado.");
+    await page.waitForSelector("#numeroCNJ", { visible: true, timeout: 20000 });
+    console.log("🧩 Campo de processo localizado.");
 
-    // ✅ Clicar no campo para habilitar
-    await page.click("#numeroCNJ");
-    console.log("Campo de processo ativado.");
+    // ✅ Espera um tempo adicional (para o Angular habilitar o campo)
+    await page.waitForTimeout(1000);
 
-    // ✅ Aguardar o Angular habilitar o input
+    // ✅ Clicar no campo (tentativa padrão)
+    try {
+      await page.click("#numeroCNJ", { delay: 100 });
+      console.log("🖱️ Campo de processo ativado via clique.");
+    } catch {
+      console.log("⚠️ Clique falhou, forçando foco direto via DOM...");
+      await page.evaluate(() => {
+        const campo = document.querySelector("#numeroCNJ");
+        if (campo) campo.focus();
+      });
+      console.log("🎯 Foco aplicado diretamente no campo via JavaScript.");
+    }
+
+    // ✅ Esperar campo habilitar
     await page.waitForFunction(
       () => {
         const campo = document.querySelector("#numeroCNJ");
         return campo && !campo.disabled;
       },
-      { timeout: 10000 }
+      { timeout: 8000 }
     );
 
-    // ✅ Limpar o campo antes de digitar
+    // ✅ Limpar e digitar o número do processo
     await page.evaluate(() => {
       const input = document.querySelector("#numeroCNJ");
       if (input) input.value = "";
@@ -81,27 +94,20 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("✍️ Número de processo inserido com sucesso.");
 
     // === CLICAR EM "BUSCAR PROCESSO" ===
-    console.log("Buscando processo...");
+    console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
 
-    // ✅ Aguarda processamento Angular da busca
+    // ✅ Aguarda resposta e renderização
+    console.log("📁 Aguardando resultados...");
     await page.waitForTimeout(7000);
 
-    // ✅ Força navegação até a página de resultados
-    console.log("Aguardando resultados...");
-    await page.goto(
-      "https://themia.themisweb.penso.com.br/themia/resultadoBusca",
-      { waitUntil: "networkidle2" }
-    );
-
-    // Espera tabela carregar
-    await page.waitForSelector("table tbody tr", { timeout: 30000 });
-
-    // === COLETAR RESULTADO NA TABELA ===
+    // === COLETAR RESULTADO ===
     const resultado = await page.evaluate((numeroProcesso) => {
       const linhas = document.querySelectorAll("table tbody tr");
-      let achou = null;
+      if (!linhas.length)
+        return "Nenhum resultado encontrado na tabela principal.";
 
+      let achou = null;
       for (const linha of linhas) {
         const colunas = [...linha.querySelectorAll("td")].map((td) =>
           td.innerText.trim()
@@ -122,7 +128,7 @@ app.post("/buscar-processo", async (req, res) => {
 
     await browser.close();
 
-    console.log("Resultado obtido:", resultado);
+    console.log("📄 Resultado obtido:", resultado);
     res.json([{ numeroProcesso, resultado }]);
   } catch (err) {
     console.error("❌ Erro na automação:", err.message);
