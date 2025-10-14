@@ -66,26 +66,39 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
 
-    // Espera a tela atualizar e carregar o resultado
-    await page.waitForSelector(".themis-control-group", { timeout: 20000 });
+    // === ETAPA 5: Aguardar resultado da tabela ===
+    await page.waitForSelector("table tbody tr", { timeout: 20000 });
 
     const resultado = await page.evaluate(() => {
-      const tabela = document.querySelector(".themis-control-group");
-      return tabela ? tabela.innerText : "Nenhum resultado encontrado.";
+      const linha = document.querySelector("table tbody tr");
+      if (!linha) return "Nenhum resultado encontrado.";
+
+      const colunas = [...linha.querySelectorAll("td")].map(td =>
+        td.innerText.trim()
+      );
+
+      return {
+        numero: colunas[0] || "N/I",
+        tipo: colunas[1] || "N/I",
+        ultimaAtualizacao: colunas[2] || "N/I",
+        status: colunas[3] || "N/I",
+      };
     });
 
     await browser.close();
     console.log("📄 Resultado obtido:", resultado);
 
-    res.json({ numeroProcesso, resultado });
+    res.json([{ numeroProcesso, resultado }]);
   } catch (err) {
     console.error("❌ Erro na automação:", err.message);
     res.status(500).json({ erro: err.message });
   }
 });
 
+// === ENDPOINT DE TESTE ===
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 
+// === SERVIDOR ===
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ Servidor rodando na porta ${PORT}`)
