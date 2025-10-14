@@ -1,5 +1,8 @@
 FROM node:20-slim
 
+# Evita o download do Chromium interno (usaremos o Chrome do sistema)
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 # Instala o Google Chrome e dependências necessárias
 RUN apt-get update && apt-get install -y \
   wget gnupg ca-certificates fonts-liberation \
@@ -14,20 +17,11 @@ RUN apt-get update && apt-get install -y \
   && apt-get update && apt-get install -y google-chrome-stable \
   && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho
 WORKDIR /app
-
-# Copia os arquivos para dentro do container
 COPY . .
-
-# Instala dependências Node.js
 RUN npm install
 
-# Define variável de ambiente para o Chrome
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# Expõe a porta usada pelo servidor
 EXPOSE 10000
-
-# Inicia o servidor
 CMD ["node", "index.js"]
