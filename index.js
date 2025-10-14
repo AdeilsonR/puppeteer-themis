@@ -15,10 +15,10 @@ app.post("/buscar-processo", async (req, res) => {
   try {
     console.log(`🔎 Iniciando busca do processo: ${numeroProcesso}`);
 
-    // === INICIALIZA O NAVEGADOR USANDO CHROME NATIVO DO RENDER ===
+    // === INICIALIZA O NAVEGADOR (AGORA COM FALLBACK AUTOMÁTICO) ===
+    console.log("🚀 Iniciando navegador...");
     const browser = await puppeteer.launch({
       headless: true,
-      executablePath: "/usr/bin/google-chrome-stable", // usa Chrome do container
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -27,6 +27,7 @@ app.post("/buscar-processo", async (req, res) => {
         "--no-zygote",
         "--single-process"
       ],
+      executablePath: process.env.CHROME_BIN || puppeteer.executablePath(),
     });
 
     const page = await browser.newPage();
