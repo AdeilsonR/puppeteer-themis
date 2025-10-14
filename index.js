@@ -80,33 +80,18 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
 
-    // ✅ Delay para estabilizar a requisição AJAX
-    await page.waitForTimeout(5000);
+    // ✅ Aguarda processamento Angular da busca
+    await page.waitForTimeout(7000);
 
-    console.log("⏳ Aguardando resposta do Themis...");
-    await page.waitForFunction(
-      () =>
-        document.querySelector(".alert-success") ||
-        document.querySelector(".alert-danger") ||
-        document.querySelector("table tbody tr"),
-      { timeout: 60000 }
+    // ✅ Força navegação até a página de resultados
+    console.log("📁 Aguardando resultados...");
+    await page.goto(
+      "https://themia.themisweb.penso.com.br/themia/resultadoBusca",
+      { waitUntil: "networkidle2" }
     );
 
-    // ✅ Se houver alerta de sucesso
-    const sucesso = await page.$(".alert-success");
-    const erro = await page.$(".alert-danger");
-
-    if (sucesso) {
-      console.log("✅ Processo buscado com sucesso, retornando à lista...");
-      await page.goto(
-        "https://themia.themisweb.penso.com.br/themia/resultadoBusca",
-        { waitUntil: "networkidle2" }
-      );
-      await page.waitForSelector("table tbody tr", { timeout: 20000 });
-    } else if (erro) {
-      const msg = await page.evaluate((el) => el.innerText.trim(), erro);
-      throw new Error("Erro no Themis: " + msg);
-    }
+    // Espera tabela carregar
+    await page.waitForSelector("table tbody tr", { timeout: 30000 });
 
     // === COLETAR RESULTADO NA TABELA ===
     const resultado = await page.evaluate((numeroProcesso) => {
@@ -117,7 +102,6 @@ app.post("/buscar-processo", async (req, res) => {
         const colunas = [...linha.querySelectorAll("td")].map((td) =>
           td.innerText.trim()
         );
-
         if (colunas.some((c) => c.includes(numeroProcesso))) {
           achou = {
             numero: colunas[0] || "N/I",
