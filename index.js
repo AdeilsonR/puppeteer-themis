@@ -37,45 +37,58 @@ app.post("/buscar-processo", async (req, res) => {
     });
 
     console.log("🌐 Página carregada, iniciando login...");
-    await page.waitForSelector("#login", { timeout: 15000 });
+    await page.waitForSelector("#login", { timeout: 20000 });
     await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
     await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
     await page.click("#btnLogin");
 
     console.log("⏳ Aguardando validação do login...");
-    await page.waitForSelector("#btnBuscaProcessos", { timeout: 20000 });
-    console.log("✅ Login realizado com sucesso!");
 
-    // === ABRIR BUSCA DE PROCESSOS ===
+    // Aguarda mudança de URL após login
+    await page.waitForFunction(
+      () => !window.location.href.includes("login"),
+      { timeout: 60000 }
+    );
+
+    // Espera até 60s o botão de busca aparecer
+    try {
+      await page.waitForSelector("#btnBuscaProcessos", { timeout: 60000 });
+    } catch (e) {
+      const currentUrl = await page.url();
+      const html = await page.content();
+      console.error("❌ Login aparentemente não chegou à tela principal.");
+      await browser.close();
+      return res.status(500).json({
+        erro: "Falha ao carregar a tela principal após login.",
+        url: currentUrl,
+        trechoHTML: html.slice(0, 1000), // Retorna só o início do HTML pra debug
+      });
+    }
+
+    console.log("✅ Login realizado com sucesso!");
     console.log("📁 Abrindo tela de busca de processos...");
+
     await page.click("#btnBuscaProcessos");
     await page.waitForSelector("#adicionarBusca", { timeout: 20000 });
 
-    // === CLICAR EM +ADICIONAR ===
     console.log("➕ Clicando em +Adicionar...");
     await page.click("#adicionarBusca");
 
-    // === AGUARDAR CAMPO DE PROCESSO ===
     await page.waitForSelector("#numeroCNJ", { visible: true, timeout: 20000 });
     console.log("🧩 Campo de processo localizado.");
-
-    // ✅ Espera um tempo adicional (para o Angular habilitar o campo)
     await page.waitForTimeout(1000);
 
-    // ✅ Clicar no campo (tentativa padrão)
     try {
       await page.click("#numeroCNJ", { delay: 100 });
       console.log("🖱️ Campo de processo ativado via clique.");
     } catch {
-      console.log("⚠️ Clique falhou, forçando foco direto via DOM...");
+      console.log("⚠️ Clique falhou, aplicando foco via DOM...");
       await page.evaluate(() => {
         const campo = document.querySelector("#numeroCNJ");
         if (campo) campo.focus();
       });
-      console.log("🎯 Foco aplicado diretamente no campo via JavaScript.");
     }
 
-    // ✅ Esperar campo habilitar
     await page.waitForFunction(
       () => {
         const campo = document.querySelector("#numeroCNJ");
@@ -84,7 +97,6 @@ app.post("/buscar-processo", async (req, res) => {
       { timeout: 8000 }
     );
 
-    // ✅ Limpar e digitar o número do processo
     await page.evaluate(() => {
       const input = document.querySelector("#numeroCNJ");
       if (input) input.value = "";
@@ -93,15 +105,11 @@ app.post("/buscar-processo", async (req, res) => {
     await page.type("#numeroCNJ", numeroProcesso, { delay: 75 });
     console.log("✍️ Número de processo inserido com sucesso.");
 
-    // === CLICAR EM "BUSCAR PROCESSO" ===
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
-
-    // ✅ Aguarda resposta e renderização
     console.log("📁 Aguardando resultados...");
     await page.waitForTimeout(7000);
 
-    // === COLETAR RESULTADO ===
     const resultado = await page.evaluate((numeroProcesso) => {
       const linhas = document.querySelectorAll("table tbody tr");
       if (!linhas.length)
@@ -127,7 +135,6 @@ app.post("/buscar-processo", async (req, res) => {
     }, numeroProcesso);
 
     await browser.close();
-
     console.log("📄 Resultado obtido:", resultado);
     res.json([{ numeroProcesso, resultado }]);
   } catch (err) {
