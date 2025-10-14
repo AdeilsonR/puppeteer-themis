@@ -4,7 +4,7 @@ import puppeteer from "puppeteer";
 const app = express();
 app.use(express.json());
 
-// Endpoint principal
+// === ENDPOINT PRINCIPAL ===
 app.post("/buscar-processo", async (req, res) => {
   const { numeroProcesso } = req.body;
 
@@ -12,37 +12,44 @@ app.post("/buscar-processo", async (req, res) => {
     return res.status(400).json({ erro: "Número do processo é obrigatório." });
   }
 
-  console.log("🔎 Iniciando busca do processo:", numeroProcesso);
+  console.log(`🔎 Iniciando busca do processo: ${numeroProcesso}`);
+  console.log("🚀 Iniciando navegador...");
 
   try {
-    console.log("🚀 Iniciando navegador...");
     const browser = await puppeteer.launch({
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-      headless: true,
+      headless: "new",
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process",
       ],
     });
 
     const page = await browser.newPage();
 
-    await page.goto("https://themia.themisweb.penso.com.br/themia", {
+    await page.goto("https://themia.themisweb.penso.com.br/themia/login", {
       waitUntil: "networkidle2",
+      timeout: 60000,
     });
 
     console.log("🌐 Página carregada, iniciando login...");
 
-    await page.type("input[name='login']", process.env.THEMIS_LOGIN);
-    await page.type("input[name='senha']", process.env.THEMIS_SENHA);
-    await page.click("button[type='submit']");
-    await page.waitForNavigation({ waitUntil: "networkidle2" });
+    // === LOGIN ===
+    await page.waitForSelector("#login", { timeout: 10000 });
+    await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
+    await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
+    await page.click("#btnLogin");
 
-    console.log("✅ Login efetuado, buscando processo...");
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30000 });
+    console.log("✅ Login realizado com sucesso!");
 
+    // === BUSCA DO PROCESSO ===
+    console.log("🔍 Buscando processo...");
     await page.type("input[name='numeroProcesso']", numeroProcesso);
     await page.click("button:has-text('Buscar')");
     await page.waitForSelector(".tabela-processos", { timeout: 15000 });
@@ -56,12 +63,13 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("📄 Resultado obtido:", resultado);
 
     res.json({ numeroProcesso, resultado });
-  } catch (err) {
-    console.error("❌ Erro na automação:", err.message);
-    res.status(500).json({ erro: err.message });
+  } catch (error) {
+    console.error("❌ Erro na automação:", error.message);
+    res.status(500).json({ erro: error.message });
   }
 });
 
+// === TESTE RÁPIDO ===
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 
 const PORT = process.env.PORT || 10000;
