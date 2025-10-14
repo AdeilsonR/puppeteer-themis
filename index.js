@@ -38,37 +38,40 @@ app.post("/buscar-processo", async (req, res) => {
 
     console.log("🌐 Página carregada, iniciando login...");
 
-    // === LOGIN AJUSTADO ===
-    await page.waitForSelector("#login", { timeout: 10000 });
+    await page.waitForSelector("#login", { timeout: 15000 });
     await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
     await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
     await page.click("#btnLogin");
 
     console.log("⏳ Aguardando validação do login...");
+    await page.waitForSelector("#btnBuscaProcessos", { timeout: 20000 });
+    console.log("✅ Login realizado com sucesso!");
 
-    try {
-      // Espera até 20 segundos o desaparecimento do campo de login
-      await page.waitForSelector("body:not(:has(#login))", { timeout: 20000 });
-      console.log("✅ Login realizado com sucesso!");
-    } catch {
-      console.warn("⚠️ Login pode não ter sido concluído, verificando mensagens...");
-      const erroLogin = await page.evaluate(() => document.body.innerText);
-      throw new Error(
-        erroLogin.includes("Usuário ou senha inválido")
-          ? "Usuário ou senha incorretos no Themis."
-          : "O login não redirecionou (possível bloqueio ou captcha)."
-      );
-    }
+    // === ETAPA 1: Abrir tela de busca de processos ===
+    console.log("📁 Abrindo tela de busca de processos...");
+    await page.click("#btnBuscaProcessos");
+    await page.waitForSelector("#adicionarBusca", { timeout: 20000 });
 
-    console.log("✅ Login efetuado, buscando processo...");
+    // === ETAPA 2: Clicar em “+ Adicionar” ===
+    console.log("➕ Clicando em +Adicionar...");
+    await page.click("#adicionarBusca");
 
-    await page.type("input[name='numeroProcesso']", numeroProcesso);
-    await page.click("button:has-text('Buscar')");
-    await page.waitForSelector(".tabela-processos", { timeout: 15000 });
+    // === ETAPA 3: Esperar campo de processo ===
+    await page.waitForSelector("#numeroCNJ", { timeout: 20000 });
+    console.log("🧩 Campo de processo localizado.");
+
+    await page.type("#numeroCNJ", numeroProcesso, { delay: 75 });
+
+    // === ETAPA 4: Buscar processo ===
+    console.log("🔍 Buscando processo...");
+    await page.click("#btnPesquisar");
+
+    // Espera a tela atualizar e carregar o resultado
+    await page.waitForSelector(".themis-control-group", { timeout: 20000 });
 
     const resultado = await page.evaluate(() => {
-      const el = document.querySelector(".tabela-processos");
-      return el ? el.innerText : "Nenhum resultado encontrado.";
+      const tabela = document.querySelector(".themis-control-group");
+      return tabela ? tabela.innerText : "Nenhum resultado encontrado.";
     });
 
     await browser.close();
