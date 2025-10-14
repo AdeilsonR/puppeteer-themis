@@ -1,5 +1,6 @@
 import express from "express";
 import puppeteer from "puppeteer";
+import fs from "fs";
 
 const app = express();
 app.use(express.json());
@@ -37,78 +38,97 @@ app.post("/buscar-processo", async (req, res) => {
     });
 
     console.log("🌐 Página carregada, iniciando login...");
-    await page.waitForSelector("#login", { timeout: 20000 });
+    await page.waitForSelector("#login", { timeout: 30000 });
     await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
     await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
     await page.click("#btnLogin");
 
     console.log("⏳ Aguardando validação do login...");
-
-    // Aguarda mudança de URL após login
     await page.waitForFunction(
       () => !window.location.href.includes("login"),
       { timeout: 60000 }
     );
 
-    // Espera até 60s o botão de busca aparecer
-    try {
-      await page.waitForSelector("#btnBuscaProcessos", { timeout: 60000 });
-    } catch (e) {
-      const currentUrl = await page.url();
-      const html = await page.content();
-      console.error("❌ Login aparentemente não chegou à tela principal.");
-      await browser.close();
-      return res.status(500).json({
-        erro: "Falha ao carregar a tela principal após login.",
-        url: currentUrl,
-        trechoHTML: html.slice(0, 1000), // Retorna só o início do HTML pra debug
-      });
-    }
-
+    await page.waitForSelector("#btnBuscaProcessos", { timeout: 60000 });
     console.log("✅ Login realizado com sucesso!");
+
     console.log("📁 Abrindo tela de busca de processos...");
-
     await page.click("#btnBuscaProcessos");
-    await page.waitForSelector("#adicionarBusca", { timeout: 20000 });
 
+    await page.waitForSelector("#adicionarBusca", { timeout: 60000 });
     console.log("➕ Clicando em +Adicionar...");
     await page.click("#adicionarBusca");
 
-    await page.waitForSelector("#numeroCNJ", { visible: true, timeout: 20000 });
+    // Aguarda o modal ou campo aparecer
+    await page.waitForFunction(() => {
+      const input = document.querySelector("#numeroCNJ");
+      const modal = document.querySelector(".modal, .ui-dialog");
+      return (input && input.offsetParent !== null) || modal;
+    }, { timeout: 60000 });
+
+    console.log("⏳ Aguardando o campo de processo aparecer...");
+    let campoSelector = "#numeroCNJ";
+
+    try {
+      await page.waitForSelector(campoSelector, { visible: true, timeout: 60000 });
+    } catch {
+      // fallback para seletores alternativos
+      const alternativas = [
+        "input[name='numeroCNJ']",
+        "#inputNumeroProcesso",
+        "input[type='text']"
+      ];
+      for (const alt of alternativas) {
+        const exists = await page.$(alt);
+        if (exists) {
+          campoSelector = alt;
+          console.log(`⚙️ Usando seletor alternativo: ${alt}`);
+          break;
+        }
+      }
+
+      // Se ainda assim não achou, salva print e URL
+      const screenshot = "/tmp/error_numeroCNJ.png";
+      await page.screenshot({ path: screenshot });
+      const base64 = fs.readFileSync(screenshot).toString("base64");
+      const urlAtual = await page.url();
+      const titulo = await page.title();
+
+      await browser.close();
+      return res.status(500).json({
+        erro: "Campo de número de processo não foi encontrado.",
+        url: urlAtual,
+        titulo,
+        screenshot: `data:image/png;base64,${base64}`
+      });
+    }
+
     console.log("🧩 Campo de processo localizado.");
     await page.waitForTimeout(1000);
 
     try {
-      await page.click("#numeroCNJ", { delay: 100 });
+      await page.click(campoSelector, { delay: 100 });
       console.log("🖱️ Campo de processo ativado via clique.");
     } catch {
       console.log("⚠️ Clique falhou, aplicando foco via DOM...");
-      await page.evaluate(() => {
-        const campo = document.querySelector("#numeroCNJ");
+      await page.evaluate((sel) => {
+        const campo = document.querySelector(sel);
         if (campo) campo.focus();
-      });
+      }, campoSelector);
     }
 
-    await page.waitForFunction(
-      () => {
-        const campo = document.querySelector("#numeroCNJ");
-        return campo && !campo.disabled;
-      },
-      { timeout: 8000 }
-    );
-
-    await page.evaluate(() => {
-      const input = document.querySelector("#numeroCNJ");
+    await page.evaluate((sel) => {
+      const input = document.querySelector(sel);
       if (input) input.value = "";
-    });
+    }, campoSelector);
 
-    await page.type("#numeroCNJ", numeroProcesso, { delay: 75 });
+    await page.type(campoSelector, numeroProcesso, { delay: 75 });
     console.log("✍️ Número de processo inserido com sucesso.");
 
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
     console.log("📁 Aguardando resultados...");
-    await page.waitForTimeout(7000);
+    await page.waitForTimeout(8000);
 
     const resultado = await page.evaluate((numeroProcesso) => {
       const linhas = document.querySelectorAll("table tbody tr");
@@ -130,13 +150,13 @@ app.post("/buscar-processo", async (req, res) => {
           break;
         }
       }
-
       return achou || "Nenhum resultado encontrado na tabela principal.";
     }, numeroProcesso);
 
     await browser.close();
     console.log("📄 Resultado obtido:", resultado);
     res.json([{ numeroProcesso, resultado }]);
+
   } catch (err) {
     console.error("❌ Erro na automação:", err.message);
     res.status(500).json({ erro: err.message });
