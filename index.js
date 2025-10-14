@@ -4,7 +4,6 @@ import puppeteer from "puppeteer";
 const app = express();
 app.use(express.json());
 
-// === ENDPOINT PRINCIPAL ===
 app.post("/buscar-processo", async (req, res) => {
   const { numeroProcesso } = req.body;
 
@@ -20,7 +19,7 @@ app.post("/buscar-processo", async (req, res) => {
       executablePath:
         process.env.PUPPETEER_EXECUTABLE_PATH ||
         "/usr/bin/google-chrome-stable",
-      headless: true,
+      headless: "new",
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -37,7 +36,6 @@ app.post("/buscar-processo", async (req, res) => {
     });
 
     console.log("🌐 Página carregada, iniciando login...");
-
     await page.waitForSelector("#login", { timeout: 15000 });
     await page.type("#login", process.env.THEMIS_LOGIN, { delay: 50 });
     await page.type("#senha", process.env.THEMIS_SENHA, { delay: 50 });
@@ -47,26 +45,29 @@ app.post("/buscar-processo", async (req, res) => {
     await page.waitForSelector("#btnBuscaProcessos", { timeout: 20000 });
     console.log("✅ Login realizado com sucesso!");
 
-    // === ETAPA 1: Abrir tela de busca de processos ===
+    // === ABRIR BUSCA DE PROCESSOS ===
     console.log("📁 Abrindo tela de busca de processos...");
     await page.click("#btnBuscaProcessos");
     await page.waitForSelector("#adicionarBusca", { timeout: 20000 });
 
-    // === ETAPA 2: Clicar em “+ Adicionar” ===
+    // === CLICAR EM +ADICIONAR ===
     console.log("➕ Clicando em +Adicionar...");
     await page.click("#adicionarBusca");
 
-    // === ETAPA 3: Esperar campo de processo ===
+    // === DIGITAR O NÚMERO DO PROCESSO ===
     await page.waitForSelector("#numeroCNJ", { timeout: 20000 });
     console.log("🧩 Campo de processo localizado.");
-
     await page.type("#numeroCNJ", numeroProcesso, { delay: 75 });
 
-    // === ETAPA 4: Buscar processo ===
+    // === CLICAR EM "BUSCAR PROCESSO" ===
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
 
-    // === ETAPA 5: Aguardar resultado da tabela ===
+    // Espera o redirecionamento para a tela de resultados
+    console.log("⏳ Aguardando retorno para resultados...");
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+
+    // Aguarda a tabela de resultados ser exibida novamente
     await page.waitForSelector("table tbody tr", { timeout: 20000 });
 
     const resultado = await page.evaluate(() => {
@@ -95,10 +96,8 @@ app.post("/buscar-processo", async (req, res) => {
   }
 });
 
-// === ENDPOINT DE TESTE ===
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 
-// === SERVIDOR ===
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`✅ Servidor rodando na porta ${PORT}`)
