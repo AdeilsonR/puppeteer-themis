@@ -5,6 +5,9 @@ import fs from "fs";
 const app = express();
 app.use(express.json());
 
+/* ===========================================================
+   ENDPOINT 1 - BUSCAR PROCESSO
+=========================================================== */
 app.post("/buscar-processo", async (req, res) => {
   const { numeroProcesso } = req.body;
 
@@ -59,7 +62,6 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("➕ Clicando em +Adicionar...");
     await page.click("#adicionarBusca");
 
-    // Aguarda o modal ou campo aparecer
     await page.waitForFunction(() => {
       const input = document.querySelector("#numeroCNJ");
       const modal = document.querySelector(".modal, .ui-dialog");
@@ -72,7 +74,6 @@ app.post("/buscar-processo", async (req, res) => {
     try {
       await page.waitForSelector(campoSelector, { visible: true, timeout: 60000 });
     } catch {
-      // fallback para seletores alternativos
       const alternativas = [
         "input[name='numeroCNJ']",
         "#inputNumeroProcesso",
@@ -87,7 +88,6 @@ app.post("/buscar-processo", async (req, res) => {
         }
       }
 
-      // Se ainda assim não achou, salva print e URL
       const screenshot = "/tmp/error_numeroCNJ.png";
       await page.screenshot({ path: screenshot });
       const base64 = fs.readFileSync(screenshot).toString("base64");
@@ -163,6 +163,74 @@ app.post("/buscar-processo", async (req, res) => {
   }
 });
 
+/* ===========================================================
+   ENDPOINT 2 - CADASTRAR PROCESSO (estrutura base)
+=========================================================== */
+app.post("/cadastrar-processo", async (req, res) => {
+  const { numeroProcesso } = req.body;
+
+  if (!numeroProcesso) {
+    return res.status(400).json({ erro: "Número do processo é obrigatório." });
+  }
+
+  console.log("🧾 Iniciando cadastro do processo:", numeroProcesso);
+
+  try {
+    const browser = await puppeteer.launch({
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
+
+    await page.goto("https://themia.themisweb.penso.com.br/themia", {
+      waitUntil: "networkidle2",
+    });
+    console.log("🌐 Página de login carregada.");
+
+    await page.type("#login", process.env.THEMIS_LOGIN);
+    await page.type("#senha", process.env.THEMIS_SENHA);
+    await page.click("#btnLogin");
+
+    await page.waitForFunction(
+      () => !window.location.href.includes("login"),
+      { timeout: 60000 }
+    );
+    console.log("✅ Login efetuado com sucesso.");
+
+    await page.waitForSelector("#btnBuscaProcessos", { timeout: 60000 });
+    await page.click("#btnBuscaProcessos");
+    console.log("📁 Entrando na tela de busca de processos...");
+
+    console.log("🧩 Preparando para identificar processos 'Pronto para cadastro'...");
+    await page.waitForTimeout(5000);
+
+    console.log("✅ Estrutura do endpoint de cadastro validada — aguardando lógica de campos.");
+    await browser.close();
+
+    res.json({
+      numeroProcesso,
+      status: "Estrutura de cadastro pronta",
+      mensagem: "Login, navegação e base concluídas com sucesso.",
+    });
+  } catch (err) {
+    console.error("❌ Erro na automação de cadastro:", err.message);
+    res.status(500).json({ erro: err.message });
+  }
+});
+
+/* ===========================================================
+   ENDPOINT BASE
+=========================================================== */
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
 
 const PORT = process.env.PORT || 10000;
