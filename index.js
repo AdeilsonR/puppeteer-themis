@@ -1,5 +1,5 @@
 import express from "express";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 app.use(express.json());
@@ -15,15 +15,17 @@ app.post("/buscar-processo", async (req, res) => {
   try {
     console.log(`🔎 Iniciando busca do processo: ${numeroProcesso}`);
 
+    // === INICIALIZA O NAVEGADOR USANDO CHROME NATIVO DO RENDER ===
     const browser = await puppeteer.launch({
       headless: true,
+      executablePath: "/usr/bin/google-chrome-stable", // usa Chrome do container
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
         "--no-zygote",
-        "--single-process",
+        "--single-process"
       ],
     });
 
