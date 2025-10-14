@@ -15,8 +15,22 @@ app.post("/buscar-processo", async (req, res) => {
   try {
     console.log(`🔎 Iniciando busca do processo: ${numeroProcesso}`);
 
-    // === INICIALIZA O NAVEGADOR (AGORA COM FALLBACK AUTOMÁTICO) ===
+    // === INICIALIZA O NAVEGADOR COM FALLBACK AUTOMÁTICO ===
     console.log("🚀 Iniciando navegador...");
+    let chromePath;
+
+    try {
+      // tenta detectar o executável do Chromium embutido no Puppeteer
+      chromePath = puppeteer.executablePath();
+    } catch {
+      // fallback para caminho padrão no ambiente Render
+      chromePath = "/opt/render/project/src/node_modules/puppeteer/.local-chromium/linux-*/chrome-linux/chrome";
+    }
+
+    if (!chromePath || chromePath === "undefined") {
+      chromePath = "/opt/render/project/src/node_modules/puppeteer/.local-chromium/linux-*/chrome-linux/chrome";
+    }
+
     const browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -27,7 +41,7 @@ app.post("/buscar-processo", async (req, res) => {
         "--no-zygote",
         "--single-process"
       ],
-      executablePath: process.env.CHROME_BIN || puppeteer.executablePath(),
+      executablePath: chromePath,
     });
 
     const page = await browser.newPage();
