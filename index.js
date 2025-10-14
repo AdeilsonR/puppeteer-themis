@@ -63,32 +63,61 @@ app.post("/buscar-processo", async (req, res) => {
     console.log("🔍 Buscando processo...");
     await page.click("#btnPesquisar");
 
-    // Espera o redirecionamento para a tela de resultados
-    console.log("⏳ Aguardando retorno para resultados...");
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+    // ✅ Delay para estabilizar a requisição AJAX
+    await page.waitForTimeout(5000);
 
-    // Aguarda a tabela de resultados ser exibida novamente
-    await page.waitForSelector("table tbody tr", { timeout: 20000 });
+    console.log("⏳ Aguardando resposta do Themis...");
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".alert-success") ||
+        document.querySelector(".alert-danger") ||
+        document.querySelector("table tbody tr"),
+      { timeout: 60000 }
+    );
 
-    const resultado = await page.evaluate(() => {
-      const linha = document.querySelector("table tbody tr");
-      if (!linha) return "Nenhum resultado encontrado.";
+    // ✅ Se houver alerta de sucesso
+    const sucesso = await page.$(".alert-success");
+    const erro = await page.$(".alert-danger");
 
-      const colunas = [...linha.querySelectorAll("td")].map(td =>
-        td.innerText.trim()
+    if (sucesso) {
+      console.log("✅ Processo buscado com sucesso, retornando à lista...");
+      await page.goto(
+        "https://themia.themisweb.penso.com.br/themia/resultadoBusca",
+        { waitUntil: "networkidle2" }
       );
+      await page.waitForSelector("table tbody tr", { timeout: 20000 });
+    } else if (erro) {
+      const msg = await page.evaluate(el => el.innerText.trim(), erro);
+      throw new Error("Erro no Themis: " + msg);
+    }
 
-      return {
-        numero: colunas[0] || "N/I",
-        tipo: colunas[1] || "N/I",
-        ultimaAtualizacao: colunas[2] || "N/I",
-        status: colunas[3] || "N/I",
-      };
-    });
+    // === COLETAR RESULTADO NA TABELA ===
+    const resultado = await page.evaluate((numeroProcesso) => {
+      const linhas = document.querySelectorAll("table tbody tr");
+      let achou = null;
+
+      for (const linha of linhas) {
+        const colunas = [...linha.querySelectorAll("td")].map(td =>
+          td.innerText.trim()
+        );
+
+        if (colunas.some(c => c.includes(numeroProcesso))) {
+          achou = {
+            numero: colunas[0] || "N/I",
+            tipo: colunas[1] || "N/I",
+            ultimaAtualizacao: colunas[2] || "N/I",
+            status: colunas[3] || "N/I",
+          };
+          break;
+        }
+      }
+
+      return achou || "Nenhum resultado encontrado na tabela principal.";
+    }, numeroProcesso);
 
     await browser.close();
-    console.log("📄 Resultado obtido:", resultado);
 
+    console.log("📄 Resultado obtido:", resultado);
     res.json([{ numeroProcesso, resultado }]);
   } catch (err) {
     console.error("❌ Erro na automação:", err.message);
