@@ -57,7 +57,24 @@ app.post("/buscar-processo", async (req, res) => {
     // === DIGITAR O NÚMERO DO PROCESSO ===
     await page.waitForSelector("#numeroCNJ", { timeout: 20000 });
     console.log("🧩 Campo de processo localizado.");
+
+    // ✅ Aguardar o Angular habilitar o input
+    await page.waitForFunction(
+      () => {
+        const campo = document.querySelector("#numeroCNJ");
+        return campo && !campo.disabled;
+      },
+      { timeout: 10000 }
+    );
+
+    // ✅ Limpar o campo antes de digitar
+    await page.evaluate(() => {
+      const input = document.querySelector("#numeroCNJ");
+      if (input) input.value = "";
+    });
+
     await page.type("#numeroCNJ", numeroProcesso, { delay: 75 });
+    console.log("✍️ Número de processo inserido com sucesso.");
 
     // === CLICAR EM "BUSCAR PROCESSO" ===
     console.log("🔍 Buscando processo...");
@@ -87,7 +104,7 @@ app.post("/buscar-processo", async (req, res) => {
       );
       await page.waitForSelector("table tbody tr", { timeout: 20000 });
     } else if (erro) {
-      const msg = await page.evaluate(el => el.innerText.trim(), erro);
+      const msg = await page.evaluate((el) => el.innerText.trim(), erro);
       throw new Error("Erro no Themis: " + msg);
     }
 
@@ -97,11 +114,11 @@ app.post("/buscar-processo", async (req, res) => {
       let achou = null;
 
       for (const linha of linhas) {
-        const colunas = [...linha.querySelectorAll("td")].map(td =>
+        const colunas = [...linha.querySelectorAll("td")].map((td) =>
           td.innerText.trim()
         );
 
-        if (colunas.some(c => c.includes(numeroProcesso))) {
+        if (colunas.some((c) => c.includes(numeroProcesso))) {
           achou = {
             numero: colunas[0] || "N/I",
             tipo: colunas[1] || "N/I",
