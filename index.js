@@ -156,9 +156,9 @@ app.post("/cadastrar-processo", async (req, res) => {
     console.log("✅ Login efetuado com sucesso.");
 
     // 2️⃣ ABRIR TELA DE BUSCA
-    console.log("📡 Clicando em 'Buscar processo'...");
-    await page.waitForSelector("a[title='Buscar processo'], i.fa-search", { timeout: 20000 });
-    await page.click("a[title='Buscar processo'], i.fa-search");
+     console.log("📡 Aguardando botão de busca de processos...");
+    await page.waitForSelector("#btnBuscaProcessos a.btn, a[href*='resultadoBusca'], i.icon-cloud-download", { timeout: 30000 });
+    await page.click("#btnBuscaProcessos a.btn, a[href*='resultadoBusca'], i.icon-cloud-download");
     await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 });
     await page.waitForSelector("table.table.vertical-top.table-utilities tbody tr", { timeout: 60000 });
     console.log("📋 Tela de resultados carregada.");
