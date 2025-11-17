@@ -32,7 +32,7 @@ async function waitFor(page, selector, timeout = 25000) {
 }
 
 // ===========================================================================
-// 1. BROWSER PERSISTENTE (Chrome sempre ativo)
+// BROWSER PERSISTENTE (Chrome sempre ativo)
 // ===========================================================================
 
 let browser;
@@ -40,7 +40,7 @@ let browser;
 async function startBrowser() {
   if (browser) return browser;
 
-  log("🚀 Iniciando Chrome… (modo persistente)");
+  log("🚀 Iniciando Chrome…");
 
   browser = await puppeteer.launch({
     executablePath:
@@ -73,7 +73,7 @@ async function startBrowser() {
 }
 
 // ===========================================================================
-// 2. NOVA PÁGINA (SEM BLOQUEIO DE RECURSOS – MUITO IMPORTANTE)
+// NOVA PÁGINA — sem bloqueio de recursos! (o Themis quebra se bloquear)
 // ===========================================================================
 
 async function novaPagina() {
@@ -82,10 +82,9 @@ async function novaPagina() {
 
   await page.setViewport({ width: 1440, height: 900 });
 
-  // 🔥 CORREÇÃO: NÃO bloquear recursos — Themis quebra
+  // 🔥 NÃO BLOQUEAR RECURSOS — Themis depende de CSS, fontes e scripts
   await page.setRequestInterception(false);
 
-  // logs do navegador
   page.on("console", msg => {
     if (["error", "warning"].includes(msg.type()))
       log(`⚠️ Log do navegador: ${msg.text()}`);
@@ -102,7 +101,7 @@ async function novaPagina() {
 }
 
 // ===========================================================================
-// 3. LOGIN ROBUSTO
+// LOGIN CONSISTENTE
 // ===========================================================================
 
 async function loginThemis(page) {
@@ -115,7 +114,6 @@ async function loginThemis(page) {
 
     await page.waitForTimeout(1200);
 
-    // identificar seletor de login
     const possíveis = ["#login", "input[id='login']", "input[type='text']"];
     let encontrado = null;
 
@@ -128,7 +126,7 @@ async function loginThemis(page) {
     }
 
     if (!encontrado) {
-      log("⚠️ Login não encontrado — tentando recarregar página…");
+      log("⚠️ Login não encontrado — recarregando…");
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForTimeout(1500);
@@ -144,7 +142,7 @@ async function loginThemis(page) {
     await page.click("#btnLogin");
 
     await page.waitForFunction(() => !location.href.includes("login"), {
-      timeout: 60000
+      timeout: 60000,
     });
 
     log("✅ Login concluído.");
@@ -155,7 +153,7 @@ async function loginThemis(page) {
 }
 
 // ===========================================================================
-// 4. BUSCAR PROCESSO
+// BUSCAR PROCESSO
 // ===========================================================================
 
 app.post("/buscar-processo", async (req, res) => {
@@ -221,7 +219,7 @@ app.post("/buscar-processo", async (req, res) => {
 });
 
 // ===========================================================================
-// 5. CADASTRAR PROCESSO (com Workflow + sem throttling)
+// CADASTRAR PROCESSO
 // ===========================================================================
 
 app.post("/cadastrar-processo", async (req, res) => {
@@ -242,15 +240,31 @@ app.post("/cadastrar-processo", async (req, res) => {
     await waitFor(page, "#btnBuscaProcessos");
     await page.click("#btnBuscaProcessos");
 
-    await waitFor(page, "table.table.vertical-top.table-utilities tbody tr");
+    // 🔥 PATCH IMPORTANTE: garantir carregamento REAL da tabela
+    await waitFor(page, "table.table.vertical-top.table-utilities tbody", 45000);
 
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll(
+          "table.table.vertical-top.table-utilities tbody tr"
+        ).length > 0,
+      { timeout: 45000 }
+    );
+
+    log("📋 Tabela carregada — iniciando busca…");
+
+    // Localizar processo
     log("🔍 Procurando processo…");
 
     const encontrado = await page.evaluate(num => {
-      const linhas = document.querySelectorAll("table.table.vertical-top.table-utilities tbody tr");
+      const linhas = document.querySelectorAll(
+        "table.table.vertical-top.table-utilities tbody tr"
+      );
 
       for (const linha of linhas) {
-        const cols = [...linha.querySelectorAll("td")].map(td => td.innerText.trim());
+        const cols = [...linha.querySelectorAll("td")].map(td =>
+          td.innerText.trim()
+        );
         const numero = cols[0];
         const status = cols[cols.length - 1];
 
@@ -285,7 +299,7 @@ app.post("/cadastrar-processo", async (req, res) => {
 
     await page.waitForNavigation();
 
-    // Helper: autocomplete
+    // autocomplete helper
     async function autocomplete(selector, texto) {
       await waitFor(page, selector);
       await page.click(selector);
@@ -295,17 +309,20 @@ app.post("/cadastrar-processo", async (req, res) => {
       await page.keyboard.press("Enter");
     }
 
+    // preenchimentos
     await autocomplete("input[ng-model='vm.capa.cliente']", "Themia");
     await autocomplete("input[ng-model='vm.capa.advogadoInteressado']", "Bdyone");
     await autocomplete("input[ng-model='vm.capa.originador']", origem || "Themia");
 
     if (valor_causa) {
       await waitFor(page, "input[ng-model='vm.capa.valorCausa']");
-      await page.evaluate(() => document.querySelector("input[ng-model='vm.capa.valorCausa']").value = "");
+      await page.evaluate(() => {
+        document.querySelector("input[ng-model='vm.capa.valorCausa']").value = "";
+      });
       await page.type("input[ng-model='vm.capa.valorCausa']", valor_causa.toString());
     }
 
-    // PARTES
+    // Partes
     await page.click("a[ng-click='vm.adicionarParteInteressada()']");
     await autocomplete("input[ng-model='novaParte.nome']", "Parte Autor");
     await page.select("select[ng-model='novaParte.posicao']", "Autor");
@@ -329,7 +346,8 @@ app.post("/cadastrar-processo", async (req, res) => {
 
     await page.evaluate(() => {
       const sel = document.querySelector("select#tipoAndamentoWorkflow");
-      if (sel) sel.dispatchEvent(new Event("change", { bubbles: true }));
+      if (sel)
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
     log("💾 Salvando…");
