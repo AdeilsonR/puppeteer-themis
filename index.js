@@ -31,8 +31,17 @@ async function waitFor(page, selector, timeout = 25000) {
   }
 }
 
+// Conversão para campos numéricos do Themis
+function limparNumero(valor) {
+  if (!valor) return "";
+  return valor
+    .replace(/[R$\s]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+}
+
 // ===========================================================================
-// BROWSER PERSISTENTE (Chrome sempre ativo)
+// BROWSER PERSISTENTE
 // ===========================================================================
 
 let browser;
@@ -73,7 +82,7 @@ async function startBrowser() {
 }
 
 // ===========================================================================
-// NOVA PÁGINA — sem bloqueio de recursos! (o Themis quebra se bloquear)
+// NOVA PÁGINA (sem bloqueio de recursos!)
 // ===========================================================================
 
 async function novaPagina() {
@@ -82,7 +91,7 @@ async function novaPagina() {
 
   await page.setViewport({ width: 1440, height: 900 });
 
-  // 🔥 NÃO BLOQUEAR RECURSOS — Themis depende de CSS, fontes e scripts
+  // 🔥 NÃO BLOQUEAR recursos — Themis quebra se bloquear CSS, imagens, fontes
   await page.setRequestInterception(false);
 
   page.on("console", msg => {
@@ -101,7 +110,7 @@ async function novaPagina() {
 }
 
 // ===========================================================================
-// LOGIN CONSISTENTE
+// LOGIN
 // ===========================================================================
 
 async function loginThemis(page) {
@@ -227,7 +236,13 @@ app.post("/cadastrar-processo", async (req, res) => {
   let page = null;
 
   try {
-    const { processo, origem, valor_causa } = req.body;
+    const {
+      processo,
+      origem,
+      valor_causa,
+      valor_vencidas,
+      valor_vicendas
+    } = req.body;
 
     if (!processo)
       return res.status(400).json({ erro: "Número do processo é obrigatório" });
@@ -240,7 +255,7 @@ app.post("/cadastrar-processo", async (req, res) => {
     await waitFor(page, "#btnBuscaProcessos");
     await page.click("#btnBuscaProcessos");
 
-    // 🔥 PATCH IMPORTANTE: garantir carregamento REAL da tabela
+    // PATCH: garantir carregamento COMPLETO da tabela
     await waitFor(page, "table.table.vertical-top.table-utilities tbody", 45000);
 
     await page.waitForFunction(
@@ -314,15 +329,50 @@ app.post("/cadastrar-processo", async (req, res) => {
     await autocomplete("input[ng-model='vm.capa.advogadoInteressado']", "Bdyone");
     await autocomplete("input[ng-model='vm.capa.originador']", origem || "Themia");
 
+    // Valor Causa
     if (valor_causa) {
       await waitFor(page, "input[ng-model='vm.capa.valorCausa']");
       await page.evaluate(() => {
         document.querySelector("input[ng-model='vm.capa.valorCausa']").value = "";
       });
-      await page.type("input[ng-model='vm.capa.valorCausa']", valor_causa.toString());
+      await page.type(
+        "input[ng-model='vm.capa.valorCausa']",
+        valor_causa.toString()
+      );
     }
 
-    // Partes
+    // =====================================================================
+    // VALOR - VENCIDAS / VALOR - VINCENDAS
+    // =====================================================================
+
+    log("💰 Preenchendo valores vencidas e vincendas…");
+
+    const valorVencidas = limparNumero(valor_vencidas);
+    const valorVincendas = limparNumero(valor_vicendas);
+
+    // Valor – Vencidas (input#var9)
+    if (valorVencidas) {
+      await waitFor(page, "#var9");
+      await page.evaluate(() => {
+        const input = document.querySelector("#var9");
+        if (input) input.value = "";
+      });
+      await page.type("#var9", valorVencidas, { delay: 15 });
+      log(`✔ Valor Vencidas preenchido: ${valorVencidas}`);
+    }
+
+    // Valor – Vincendas (input#var10)
+    if (valorVincendas) {
+      await waitFor(page, "#var10");
+      await page.evaluate(() => {
+        const input = document.querySelector("#var10");
+        if (input) input.value = "";
+      });
+      await page.type("#var10", valorVincendas, { delay: 15 });
+      log(`✔ Valor Vincendas preenchido: ${valorVincendas}`);
+    }
+
+    // PARTES
     await page.click("a[ng-click='vm.adicionarParteInteressada()']");
     await autocomplete("input[ng-model='novaParte.nome']", "Parte Autor");
     await page.select("select[ng-model='novaParte.posicao']", "Autor");
@@ -350,6 +400,7 @@ app.post("/cadastrar-processo", async (req, res) => {
         sel.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
+    // SALVAR
     log("💾 Salvando…");
 
     await waitFor(page, "button[ng-click='vm.salvarProcesso()']");
@@ -361,6 +412,8 @@ app.post("/cadastrar-processo", async (req, res) => {
       processo,
       origem,
       valor_causa,
+      valor_vencidas,
+      valor_vicendas,
       status: "Cadastro concluído",
       duracao_ms: Date.now() - início
     });
