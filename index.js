@@ -4,336 +4,202 @@ import puppeteer from "puppeteer";
 const app = express();
 app.use(express.json());
 
-// ===========================================================================
-// LOG & HELPERS
-// ===========================================================================
-
-function log(msg) {
+// Função global de log
+const log = (msg) =>
   console.log(`📌 ${new Date().toISOString()} | ${msg}`);
-}
 
-async function screenshotError(page, label = "erro") {
-  try {
-    const path = `/tmp/${label}_${Date.now()}.png`;
-    await page.screenshot({ path, fullPage: true });
-    log(`📸 Screenshot capturado: ${path}`);
-  } catch (err) {
-    log("❌ Falha ao capturar screenshot: " + err.message);
-  }
-}
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitFor(page, selector, timeout = 25000) {
-  try {
-    await page.waitForSelector(selector, { timeout });
-  } catch (err) {
-    await screenshotError(page, "missing_selector");
-    throw new Error(`Selector não encontrado: ${selector}`);
-  }
-}
+const responseError = (res, msg) => res.status(500).json({ erro: msg });
 
-// Conversão para campos numéricos do Themis
-function limparNumero(valor) {
-  if (!valor) return "";
-  return valor
-    .replace(/[R$\s]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-}
-
-// ===========================================================================
-// BROWSER PERSISTENTE
-// ===========================================================================
-
-let browser;
-
-async function startBrowser() {
-  if (browser) return browser;
-
-  log("🚀 Iniciando Chrome…");
-
-  browser = await puppeteer.launch({
-    executablePath:
-      process.env.PUPPETEER_EXECUTABLE_PATH ||
-      "/usr/bin/google-chrome-stable",
-
-    headless: "new",
-
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-software-rasterizer",
-      "--disable-breakpad",
-      "--disable-extensions",
-      "--disable-infobars",
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
-  });
-
-  browser.on("disconnected", async () => {
-    log("⚠️ Chrome caiu! Reiniciando…");
-    browser = null;
-    await startBrowser();
-  });
-
-  return browser;
-}
-
-// ===========================================================================
-// NOVA PÁGINA (sem bloqueio de recursos!)
-// ===========================================================================
-
-async function novaPagina() {
-  const browser = await startBrowser();
-  const page = await browser.newPage();
-
-  await page.setViewport({ width: 1440, height: 900 });
-
-  // 🔥 NÃO BLOQUEAR recursos — Themis quebra se bloquear CSS, imagens, fontes
-  await page.setRequestInterception(false);
-
-  page.on("console", msg => {
-    if (["error", "warning"].includes(msg.type()))
-      log(`⚠️ Log do navegador: ${msg.text()}`);
-  });
-
-  page.on("pageerror", err => {
-    log("❌ Erro JS dentro da página (Angular): " + err.message);
-  });
-
-  page.setDefaultTimeout(30000);
-  page.setDefaultNavigationTimeout(45000);
-
-  return page;
-}
-
-// ===========================================================================
-// LOGIN
-// ===========================================================================
-
-async function loginThemis(page) {
-  try {
-    log("🌐 Acessando Themis…");
-
-    await page.goto("https://themia.themisweb.penso.com.br/themia", {
-      waitUntil: "domcontentloaded"
-    });
-
-    await page.waitForTimeout(1200);
-
-    const possíveis = ["#login", "input[id='login']", "input[type='text']"];
-    let encontrado = null;
-
-    for (const sel of possíveis) {
-      try {
-        await page.waitForSelector(sel, { timeout: 2500 });
-        encontrado = sel;
-        break;
-      } catch {}
-    }
-
-    if (!encontrado) {
-      log("⚠️ Login não encontrado — recarregando…");
-
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(1500);
-
-      await page.waitForSelector("#login", { timeout: 4000 });
-      encontrado = "#login";
-    }
-
-    log(`🔑 Campo login detectado: ${encontrado}`);
-
-    await page.type(encontrado, process.env.THEMIS_LOGIN, { delay: 15 });
-    await page.type("#senha", process.env.THEMIS_SENHA, { delay: 15 });
-    await page.click("#btnLogin");
-
-    await page.waitForFunction(() => !location.href.includes("login"), {
-      timeout: 60000,
-    });
-
-    log("✅ Login concluído.");
-  } catch (err) {
-    await screenshotError(page, "login_falhou");
-    throw err;
-  }
-}
-
-// ===========================================================================
-// BUSCAR PROCESSO
-// ===========================================================================
+// ====================================================================================
+// ENDPOINT: BUSCAR PROCESSO (sem alterações estruturais)
+// ====================================================================================
 
 app.post("/buscar-processo", async (req, res) => {
-  const início = Date.now();
-  let page = null;
+  const { numeroProcesso } = req.body;
+  if (!numeroProcesso)
+    return res.status(400).json({ erro: "Número do processo é obrigatório." });
+
+  log(`🔎 Iniciando busca (CNJ: ${numeroProcesso})`);
 
   try {
-    const { numeroProcesso } = req.body;
+    const browser = await puppeteer.launch({
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH ||
+        "/usr/bin/google-chrome-stable",
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
 
-    if (!numeroProcesso)
-      return res.status(400).json({ erro: "Número do processo é obrigatório" });
+    const page = await browser.newPage();
+    await page.goto("https://themia.themisweb.penso.com.br/themia", {
+      waitUntil: "networkidle2",
+    });
 
-    page = await novaPagina();
-    await loginThemis(page);
+    await page.type("#login", process.env.THEMIS_LOGIN);
+    await page.type("#senha", process.env.THEMIS_SENHA);
+    await page.click("#btnLogin");
 
-    log("📂 Abrindo tela de busca…");
+    await page.waitForNavigation({ waitUntil: "networkidle2" });
 
-    await waitFor(page, "#btnBuscaProcessos");
     await page.click("#btnBuscaProcessos");
+    await page.waitForSelector("table.table.vertical-top.table-utilities");
 
-    await waitFor(page, "#adicionarBusca");
-    await page.click("#adicionarBusca");
-
-    await waitFor(page, "#numeroCNJ");
-    await page.type("#numeroCNJ", numeroProcesso);
-
-    await page.click("#btnPesquisar");
-
-    await page.waitForTimeout(4000);
-
-    const resultado = await page.evaluate(num => {
+    const resultado = await page.evaluate((numero) => {
       const linhas = document.querySelectorAll("table tbody tr");
-      if (!linhas.length) return null;
-
       for (const linha of linhas) {
-        const cols = [...linha.querySelectorAll("td")].map(td => td.innerText.trim());
-        if (cols.some(c => c.includes(num))) {
+        const cols = [...linha.querySelectorAll("td")].map((x) =>
+          x.innerText.trim()
+        );
+        if (cols.some((c) => c.includes(numero))) {
           return {
-            numero: cols[0],
-            tipo: cols[1],
-            ultimaAtualizacao: cols[2],
-            status: cols[3],
+            numero: cols[0] || "N/I",
+            tipo: cols[1] || "N/I",
+            ultimaAtualizacao: cols[2] || "N/I",
+            status: cols[3] || "N/I",
           };
         }
       }
-      return null;
+      return "Nenhum resultado encontrado.";
     }, numeroProcesso);
 
-    res.json({
-      ok: true,
-      numeroProcesso,
-      resultado,
-      duracao_ms: Date.now() - início
-    });
-
-  } catch (err) {
-    log("❌ ERRO BUSCAR: " + err.message);
-    await screenshotError(page, "buscar_erro");
-    res.status(500).json({ erro: err.message });
-  } finally {
-    if (page) await page.close();
+    await browser.close();
+    return res.json({ numeroProcesso, resultado });
+  } catch (e) {
+    return responseError(res, e.message);
   }
 });
 
-// ===========================================================================
-// CADASTRAR PROCESSO
-// ===========================================================================
+// ====================================================================================
+// ENDPOINT: CADASTRAR PROCESSO (COMPLETO E AJUSTADO)
+// ====================================================================================
 
 app.post("/cadastrar-processo", async (req, res) => {
-  const início = Date.now();
-  let page = null;
+  const { processo, origem, valor_causa, valor_vencidas, valor_vincendas } =
+    req.body;
+
+  if (!processo)
+    return res.status(400).json({ erro: "Número do processo é obrigatório." });
+
+  log(`🧾 Iniciando cadastro do processo: ${processo}`);
 
   try {
-    const {
-      processo,
-      origem,
-      valor_causa,
-      valor_vencidas,
-      valor_vicendas
-    } = req.body;
+    const browser = await puppeteer.launch({
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH ||
+        "/usr/bin/google-chrome-stable",
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
 
-    if (!processo)
-      return res.status(400).json({ erro: "Número do processo é obrigatório" });
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1366, height: 768 });
 
-    page = await novaPagina();
-    await loginThemis(page);
+    // LOGIN
+    log("🌐 Acessando Themis…");
+    await page.goto("https://themia.themisweb.penso.com.br/themia", {
+      waitUntil: "networkidle2",
+    });
 
+    await page.waitForSelector("#login");
+    await page.type("#login", process.env.THEMIS_LOGIN);
+    await page.type("#senha", process.env.THEMIS_SENHA);
+    await page.click("#btnLogin");
+
+    await page.waitForNavigation({ waitUntil: "networkidle2" });
+    log("✅ Login concluído.");
+
+    // ABRIR LISTA
     log("📂 Abrindo lista de processos…");
-
-    await waitFor(page, "#btnBuscaProcessos");
     await page.click("#btnBuscaProcessos");
+    await page.waitForSelector("table.table.vertical-top.table-utilities");
 
-    // PATCH: garantir carregamento COMPLETO da tabela
-    await waitFor(page, "table.table.vertical-top.table-utilities tbody", 45000);
+    // BUSCAR PROCESSO COM O BOTÃO CINZA (STATUS == 1)
+    log("🔍 Procurando processo na tabela…");
 
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll(
-          "table.table.vertical-top.table-utilities tbody tr"
-        ).length > 0,
-      { timeout: 45000 }
-    );
-
-    log("📋 Tabela carregada — iniciando busca…");
-
-    // Localizar processo
-    log("🔍 Procurando processo…");
-
-    const encontrado = await page.evaluate(num => {
+    const localizado = await page.evaluate((num) => {
+      num = num.trim();
       const linhas = document.querySelectorAll(
         "table.table.vertical-top.table-utilities tbody tr"
       );
 
       for (const linha of linhas) {
-        const cols = [...linha.querySelectorAll("td")].map(td =>
-          td.innerText.trim()
-        );
-        const numero = cols[0];
-        const status = cols[cols.length - 1];
+        const cols = linha.querySelectorAll("td");
+        if (cols.length === 0) continue;
 
-        if (numero?.includes(num) && status.includes("Pronto para cadastro")) {
-          const btn = linha.querySelector(".btnCadastrarCapa");
-          btn?.setAttribute("data-ok", "true");
+        const numeroLinha = cols[0]?.innerText?.trim() || "";
+        const botao = linha.querySelector(
+          "i.icon-plus.pointer.btnCadastrarCapa"
+        );
+
+        console.log("🧪 linha:", numeroLinha, "btn:", !!botao);
+
+        if (numeroLinha.includes(num) && botao) {
+          botao.setAttribute("data-proximo", "true");
           return true;
         }
       }
       return false;
     }, processo);
 
-    if (!encontrado) {
+    if (!localizado) {
+      log("⚠ Processo não encontrado ou sem botão de cadastro.");
+      await browser.close();
       return res.json({
         processo,
         status: "Ignorado",
-        mensagem: "Processo não encontrado ou não está pronto."
+        mensagem:
+          "Processo não possui botão de cadastro (status != 1).",
       });
     }
 
-    log("➕ Abrindo cadastro…");
+    log("➕ Processo localizado — clicando no botão cinza…");
 
     await page.evaluate(() => {
-      const btn = document.querySelector(".btnCadastrarCapa[data-ok='true']");
-      if (btn) btn.click();
+      const btn = document.querySelector(
+        "i.icon-plus.pointer.btnCadastrarCapa[data-proximo='true']"
+      );
+      btn?.click();
     });
 
-    // ÁREA
-    await waitFor(page, "#selectArea");
+    await delay(2000);
+
+    // SELECIONAR ÁREA
+    await page.waitForSelector("#selectArea");
     await page.select("#selectArea", "Previdenciário");
     await page.click("#btnProsseguir");
 
-    await page.waitForNavigation();
+    await page.waitForNavigation({ waitUntil: "networkidle2" });
+    log("📌 Área selecionada.");
 
-    // autocomplete helper
-    async function autocomplete(selector, texto) {
-      await waitFor(page, selector);
+    // AUTOCOMPLETE
+    async function autocomplete(selector, text) {
       await page.click(selector);
-      await page.type(selector, texto, { delay: 10 });
-      await page.waitForTimeout(800);
+      await page.type(selector, text, { delay: 70 });
+      await delay(1200);
       await page.keyboard.press("ArrowDown");
       await page.keyboard.press("Enter");
     }
 
-    // preenchimentos
     await autocomplete("input[ng-model='vm.capa.cliente']", "Themia");
-    await autocomplete("input[ng-model='vm.capa.advogadoInteressado']", "Bdyone");
-    await autocomplete("input[ng-model='vm.capa.originador']", origem || "Themia");
+    await autocomplete(
+      "input[ng-model='vm.capa.advogadoInteressado']",
+      "Bdyone"
+    );
+    await autocomplete(
+      "input[ng-model='vm.capa.originador']",
+      origem || "Themia"
+    );
 
-    // Valor Causa
+    // VALOR DA CAUSA
     if (valor_causa) {
-      await waitFor(page, "input[ng-model='vm.capa.valorCausa']");
+      await page.click("input[ng-model='vm.capa.valorCausa']");
       await page.evaluate(() => {
-        document.querySelector("input[ng-model='vm.capa.valorCausa']").value = "";
+        const el = document.querySelector(
+          "input[ng-model='vm.capa.valorCausa']"
+        );
+        if (el) el.value = "";
       });
       await page.type(
         "input[ng-model='vm.capa.valorCausa']",
@@ -341,101 +207,65 @@ app.post("/cadastrar-processo", async (req, res) => {
       );
     }
 
-    // =====================================================================
-    // VALOR - VENCIDAS / VALOR - VINCENDAS
-    // =====================================================================
-
-    log("💰 Preenchendo valores vencidas e vincendas…");
-
-    const valorVencidas = limparNumero(valor_vencidas);
-    const valorVincendas = limparNumero(valor_vicendas);
-
-    // Valor – Vencidas (input#var9)
-    if (valorVencidas) {
-      await waitFor(page, "#var9");
-      await page.evaluate(() => {
-        const input = document.querySelector("#var9");
-        if (input) input.value = "";
-      });
-      await page.type("#var9", valorVencidas, { delay: 15 });
-      log(`✔ Valor Vencidas preenchido: ${valorVencidas}`);
-    }
-
-    // Valor – Vincendas (input#var10)
-    if (valorVincendas) {
-      await waitFor(page, "#var10");
-      await page.evaluate(() => {
-        const input = document.querySelector("#var10");
-        if (input) input.value = "";
-      });
-      await page.type("#var10", valorVincendas, { delay: 15 });
-      log(`✔ Valor Vincendas preenchido: ${valorVincendas}`);
-    }
-
     // PARTES
-    await page.click("a[ng-click='vm.adicionarParteInteressada()']");
+    await autocomplete("a[ng-click='vm.adicionarParteInteressada()']", "");
     await autocomplete("input[ng-model='novaParte.nome']", "Parte Autor");
     await page.select("select[ng-model='novaParte.posicao']", "Autor");
 
-    await page.click("a[ng-click='vm.adicionarParteContraria()']");
-    await autocomplete("input[ng-model='novaParteContraria.nome']", "INSS");
+    await autocomplete("a[ng-click='vm.adicionarParteContraria()']", "");
+    await autocomplete(
+      "input[ng-model='novaParteContraria.nome']",
+      "INSS"
+    );
     await page.select("select[ng-model='novaParteContraria.posicao']", "Réu");
 
     await autocomplete("input[ng-model='vm.capa.acao']", "Auxilio Acidente");
 
-    await page.select("select[ng-model='vm.capa.instancia']", "1ª Instância");
-    await page.select("#processoFase", "Inicial");
+    // WORKFLOW DE ANDAMENTOS
+    log("📌 Selecionando workflow…");
 
-    await autocomplete("input[ng-model='vm.capa.foro']", "Preencher");
+    await page.waitForSelector(
+      "select[ng-model='tipoAndamentoWorkflow']"
+    );
+    await page.select(
+      "select[ng-model='tipoAndamentoWorkflow']",
+      "Workflow | Conferir Cadastro"
+    );
 
-    // WORKFLOW
-    log("⚙️ Selecionando Workflow…");
+    // VALORES PERSONALIZADOS (#var9 e #var10)
+    if (valor_vencidas) {
+      await page.type("#var9", valor_vencidas.toString());
+    }
+    if (valor_vincendas) {
+      await page.type("#var10", valor_vincendas.toString());
+    }
 
-    await waitFor(page, "select#tipoAndamentoWorkflow");
-    await page.select("select#tipoAndamentoWorkflow", "Workflow | Conferir Cadastro");
-
-    await page.evaluate(() => {
-      const sel = document.querySelector("select#tipoAndamentoWorkflow");
-      if (sel)
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    // SALVAR
-    log("💾 Salvando…");
-
-    await waitFor(page, "button[ng-click='vm.salvarProcesso()']");
+    log("💾 Salvando cadastro…");
     await page.click("button[ng-click='vm.salvarProcesso()']");
-    await page.waitForTimeout(3500);
+    await delay(4000);
 
-    res.json({
-      ok: true,
+    await browser.close();
+
+    return res.json({
       processo,
       origem,
       valor_causa,
-      valor_vencidas,
-      valor_vicendas,
       status: "Cadastro concluído",
-      duracao_ms: Date.now() - início
+      mensagem: "Processo cadastrado com sucesso!",
     });
-
-  } catch (err) {
-    log("❌ ERRO CRÍTICO CADASTRO: " + err.message);
-    await screenshotError(page, "cadastro_erro");
-    res.status(500).json({ erro: err.message });
-  } finally {
-    if (page) await page.close();
+  } catch (e) {
+    log(`❌ ERRO CRÍTICO cadastro: ${e.message}`);
+    return responseError(res, e.message);
   }
 });
 
-// ===========================================================================
+// ====================================================================================
 // STATUS
-// ===========================================================================
+// ====================================================================================
 
-app.get("/", (req, res) => res.send("🚀 Puppeteer persistente ativo e estável"));
+app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo!"));
 
 const PORT = process.env.PORT || 10000;
-
-app.listen(PORT, "0.0.0.0", async () => {
-  log(`✅ Servidor rodando na porta ${PORT}`);
-  await startBrowser();
-});
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`Servidor rodando na porta ${PORT}`)
+);
