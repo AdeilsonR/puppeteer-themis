@@ -4,7 +4,6 @@ import puppeteer from "puppeteer";
 const app = express();
 app.use(express.json());
 
-// Função de log
 const log = (msg) =>
   console.log(`📌 ${new Date().toISOString()} | ${msg}`);
 
@@ -13,7 +12,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const respond = (res, data) => res.json(data);
 
 // =====================================================================
-// ENDPOINT: BUSCAR PROCESSO (SEM ALTERAÇÃO)
+// ENDPOINT: BUSCAR PROCESSO
 // =====================================================================
 
 app.post("/buscar-processo", async (req, res) => {
@@ -71,7 +70,7 @@ app.post("/buscar-processo", async (req, res) => {
 });
 
 // =====================================================================
-// ENDPOINT: CADASTRAR PROCESSO (COM A NOVA LÓGICA DO VÍDEO)
+// ENDPOINT: CADASTRAR PROCESSO
 // =====================================================================
 
 app.post("/cadastrar-processo", async (req, res) => {
@@ -125,30 +124,26 @@ app.post("/cadastrar-processo", async (req, res) => {
     log("📂 Tela de buscas carregada.");
 
     // -------------------------------------------------------------
-    // **NOVA LÓGICA DO VÍDEO**
-    // FILTRAR PELO NÚMERO — PARA MOSTRAR APENAS 1 LINHA
+    // NOVA LÓGICA — BUSCAR POR NÚMERO
     // -------------------------------------------------------------
-
     log("📝 Digitando número do processo…");
 
     await page.click("input[ng-model='filtro.processo']");
-
     await page.evaluate(() => {
       const el = document.querySelector("input[ng-model='filtro.processo']");
       if (el) el.value = "";
     });
 
     await page.type("input[ng-model='filtro.processo']", processo, {
-      delay: 50,
+      delay: 60,
     });
 
     await delay(300);
 
-    // Clicar na LUPA (igual ao vídeo)
+    // Clicar na lupa
     await page.click("button[ng-click='buscar()'], i.fa-search");
     log("🔍 Buscando processo…");
 
-    // Aguarda aparecer exatamente 1 linha
     await page.waitForFunction(
       () => {
         const linhas = document.querySelectorAll(
@@ -159,13 +154,12 @@ app.post("/cadastrar-processo", async (req, res) => {
       { timeout: 15000 }
     );
 
-    log("📋 Apenas 1 processo encontrado — filtragem OK.");
+    log("📋 Apenas 1 processo encontrado.");
 
     // -------------------------------------------------------------
-    // CLICAR NO BOTÃO DE CADASTRAR (CINZA) DA LINHA ÚNICA
+    // CLICAR BOTÃO CINZA
     // -------------------------------------------------------------
-
-    log("🔎 Localizando botão cinza (+)…");
+    log("🔎 Localizando botão cinza…");
 
     const encontrouBotao = await page.evaluate(() => {
       const linha = document.querySelector(
@@ -183,17 +177,14 @@ app.post("/cadastrar-processo", async (req, res) => {
     });
 
     if (!encontrouBotao) {
-      log("⚠ Botão de cadastro NÃO encontrado.");
+      log("⚠ Botão de cadastro não encontrado.");
       await browser.close();
       return respond(res, {
         processo,
         status: "Ignorado",
-        mensagem:
-          "O processo filtrado não possui botão de cadastro (+). Verifique se está com status certo.",
+        mensagem: "Linha encontrada, mas sem botão de cadastro (+).",
       });
     }
-
-    log("➕ Clicando no botão cinza…");
 
     await page.evaluate(() => {
       const btn = document.querySelector(
@@ -202,12 +193,11 @@ app.post("/cadastrar-processo", async (req, res) => {
       if (btn) btn.click();
     });
 
-    await delay(2000);
+    await delay(1600);
 
     // -------------------------------------------------------------
-    // SELEÇÃO DE ÁREA (Cadastro)
+    // SELEÇÃO DE ÁREA
     // -------------------------------------------------------------
-
     await page.waitForSelector("#selectArea");
     await page.select("#selectArea", "Previdenciário");
     await page.click("#btnProsseguir");
@@ -218,7 +208,6 @@ app.post("/cadastrar-processo", async (req, res) => {
     // -------------------------------------------------------------
     // AUTOCOMPLETE GENÉRICO
     // -------------------------------------------------------------
-
     async function autocomplete(selector, value) {
       await page.click(selector);
       await page.type(selector, value, { delay: 60 });
@@ -227,24 +216,25 @@ app.post("/cadastrar-processo", async (req, res) => {
       await page.keyboard.press("Enter");
     }
 
-    await autocomplete(
-      "input[ng-model='vm.capa.cliente']",
-      "Themia"
-    );
+    // Cliente
+    await autocomplete("input[ng-model='vm.capa.cliente']", "Themia");
 
-    await autocomplete(
-      "input[ng-model='vm.capa.advogadoInteressado']",
-      "Bdyone"
-    );
+    // Advogado interessado
+    await autocomplete("input[ng-model='vm.capa.advogadoInteressado']", "Bdyone");
 
+    // ORIGINADOR FIXO (para testes)
+    await autocomplete("input[ng-model='vm.capa.originador']", "MADM");
+
+    // ESCRITÓRIO FIXO (para testes)
     await autocomplete(
-      "input[ng-model='vm.capa.originador']",
-      origem || "Themia"
+      "input[ng-model='vm.capa.escritorio']",
+      "Maria Fernanda de Luca Advogados"
     );
 
     // -------------------------------------------------------------
     // VALOR DA CAUSA
     // -------------------------------------------------------------
+
     if (valor_causa) {
       await page.evaluate(() => {
         const el = document.querySelector(
@@ -260,9 +250,8 @@ app.post("/cadastrar-processo", async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // VALOR - VENCIDAS (#var9) / VALOR - VINCENDAS (#var10)
+    // VALORES - VENCIDAS e VINCENDAS
     // -------------------------------------------------------------
-
     const limparNumero = (v) =>
       v
         ?.replace(/[R$\s]/g, "")
@@ -278,10 +267,8 @@ app.post("/cadastrar-processo", async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // WORKFLOW DE ANDAMENTOS
+    // WORKFLOW
     // -------------------------------------------------------------
-    log("📌 Selecionando Workflow…");
-
     await page.select(
       "select[ng-model='tipoAndamentoWorkflow']",
       "Workflow | Conferir Cadastro"
@@ -290,8 +277,6 @@ app.post("/cadastrar-processo", async (req, res) => {
     // -------------------------------------------------------------
     // SALVAR
     // -------------------------------------------------------------
-    log("💾 Salvando…");
-
     await page.click("button[ng-click='vm.salvarProcesso()']");
     await delay(5000);
 
@@ -299,7 +284,6 @@ app.post("/cadastrar-processo", async (req, res) => {
 
     return respond(res, {
       processo,
-      origem,
       status: "Cadastro concluído",
       mensagem: "Processo cadastrado com sucesso!",
     });
@@ -310,7 +294,7 @@ app.post("/cadastrar-processo", async (req, res) => {
 });
 
 // =====================================================================
-// STATUS SERVER
+// SERVER
 // =====================================================================
 
 app.get("/", (req, res) => res.send("🚀 Puppeteer Themis ativo no Render!"));
